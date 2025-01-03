@@ -1,12 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"net/http"
-
-	"github.com/google/uuid"
-)
-
+/*
 func (cfg *apiConfig) handlerThumbnailGet(w http.ResponseWriter, r *http.Request) {
 	videoIDString := r.PathValue("videoID")
 	videoID, err := uuid.Parse(videoIDString)
@@ -15,11 +9,13 @@ func (cfg *apiConfig) handlerThumbnailGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tn, ok := videoThumbnails[videoID]
-	if !ok {
-		respondWithError(w, http.StatusNotFound, "Thumbnail not found", nil)
-		return
-	}
+
+		tn, ok := videoThumbnails[videoID]
+		if !ok {
+			respondWithError(w, http.StatusNotFound, "Thumbnail not found", nil)
+			return
+		}
+
 
 	w.Header().Set("Content-Type", tn.mediaType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(tn.data)))
@@ -30,3 +26,4 @@ func (cfg *apiConfig) handlerThumbnailGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 }
+*/

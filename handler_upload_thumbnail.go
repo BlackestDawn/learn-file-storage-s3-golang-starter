@@ -2,7 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/BlackestDawn/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -31,6 +36,87 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
 	// TODO: implement the upload here
+	const maxMemory = 10 << 20
+	r.ParseMultipartForm(maxMemory)
 
-	respondWithJSON(w, http.StatusOK, struct{}{})
+	file, header, err := r.FormFile("thumbnail")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
+		return
+	}
+	defer file.Close()
+
+	fileType := header.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(fileType)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Error parsing mediatype", err)
+		return
+	}
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Unsupported file format for thumbnail: "+mediaType, nil)
+		return
+	}
+	fileExt, err := mime.ExtensionsByType(fileType)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Error parsing MIME type", err)
+		return
+	}
+
+	/*
+		fileContent, err := io.ReadAll(file)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Unable to read thumbnail file", err)
+			return
+		}
+	*/
+
+	//fileContentBase64 := base64.StdEncoding.EncodeToString(fileContent)
+
+	metadata, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Could not fetch metadata", err)
+		return
+	}
+	if metadata.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "UserID mismatch", fmt.Errorf("user: %s, file owner: %s", userID.String(), metadata.UserID.String()))
+		return
+	}
+
+	/*
+		thumbnailData := thumbnail{
+			data:      fileContent,
+			mediaType: fileType,
+		}
+		videoThumbnails[metadata.UserID] = thumbnailData
+	*/
+
+	thumbnailPath := filepath.Join(cfg.assetsRoot, metadata.ID.String()+fileExt[0])
+
+	thumbnailFile, err := os.Create(thumbnailPath)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to create new thumbnail file", err)
+		return
+	}
+
+	_, err = io.Copy(thumbnailFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to write thumbnail file", err)
+		return
+	}
+
+	/*
+		thumbnailURL := "data:" + fileType + ";base64," + fileContentBase64
+		metadata.ThumbnailURL = &thumbnailURL
+	*/
+	thumbnailURL := "/" + thumbnailPath
+	metadata.ThumbnailURL = &thumbnailURL
+	metadata.UpdatedAt = time.Now()
+
+	err = cfg.db.UpdateVideo(metadata)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "error updating video data", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, metadata)
 }
