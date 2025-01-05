@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -49,7 +51,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	fileType := header.Header.Get("Content-Type")
 	mediaType, _, err := mime.ParseMediaType(fileType)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Error parsing mediatype", err)
+		respondWithError(w, http.StatusInternalServerError, "Error parsing mediatype", err)
 		return
 	}
 	if mediaType != "image/jpeg" && mediaType != "image/png" {
@@ -58,7 +60,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	fileExt, err := mime.ExtensionsByType(fileType)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Error parsing MIME type", err)
+		respondWithError(w, http.StatusInternalServerError, "Error parsing MIME type", err)
 		return
 	}
 
@@ -74,7 +76,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	metadata, err := cfg.db.GetVideo(videoID)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Could not fetch metadata", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not fetch metadata", err)
 		return
 	}
 	if metadata.UserID != userID {
@@ -90,17 +92,23 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		videoThumbnails[metadata.UserID] = thumbnailData
 	*/
 
-	thumbnailPath := filepath.Join(cfg.assetsRoot, metadata.ID.String()+fileExt[0])
+	filename := make([]byte, 32)
+	_, err = rand.Read(filename)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error generating filename", err)
+		return
+	}
+	thumbnailPath := filepath.Join(cfg.assetsRoot, base64.RawURLEncoding.EncodeToString(filename)+fileExt[0])
 
 	thumbnailFile, err := os.Create(thumbnailPath)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to create new thumbnail file", err)
+		respondWithError(w, http.StatusInternalServerError, "Unable to create new thumbnail file", err)
 		return
 	}
 
 	_, err = io.Copy(thumbnailFile, file)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to write thumbnail file", err)
+		respondWithError(w, http.StatusInternalServerError, "Unable to write thumbnail file", err)
 		return
 	}
 
@@ -108,7 +116,8 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		thumbnailURL := "data:" + fileType + ";base64," + fileContentBase64
 		metadata.ThumbnailURL = &thumbnailURL
 	*/
-	thumbnailURL := "/" + thumbnailPath
+	thumbnailURL := "http://localhost:" + cfg.port + "/" + thumbnailPath
+	//thumbnailURL := "/" + thumbnailPath
 	metadata.ThumbnailURL = &thumbnailURL
 	metadata.UpdatedAt = time.Now()
 
