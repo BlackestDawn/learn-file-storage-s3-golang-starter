@@ -16,6 +16,21 @@ import (
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
+	// Get JWT
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find JWT", err)
+		return
+	}
+
+	// Validate JWT
+	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't validate JWT", err)
+		return
+	}
+
+	// Get video ID
 	videoIDString := r.PathValue("videoID")
 	videoID, err := uuid.Parse(videoIDString)
 	if err != nil {
@@ -23,24 +38,13 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	token, err := auth.GetBearerToken(r.Header)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't find JWT", err)
-		return
-	}
-
-	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't validate JWT", err)
-		return
-	}
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	// TODO: implement the upload here
+	// Max file size
 	const maxMemory = 10 << 20
-	r.ParseMultipartForm(maxMemory)
 
+	// Parse form
+	r.ParseMultipartForm(maxMemory)
 	file, header, err := r.FormFile("thumbnail")
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
@@ -48,6 +52,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
+	// Validate MIME
 	fileType := header.Header.Get("Content-Type")
 	mediaType, _, err := mime.ParseMediaType(fileType)
 	if err != nil {
@@ -64,16 +69,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	/*
-		fileContent, err := io.ReadAll(file)
-		if err != nil {
-			respondWithError(w, http.StatusBadRequest, "Unable to read thumbnail file", err)
-			return
-		}
-	*/
-
-	//fileContentBase64 := base64.StdEncoding.EncodeToString(fileContent)
-
+	// Get and validate metadata
 	metadata, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not fetch metadata", err)
@@ -84,22 +80,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	/*
-		thumbnailData := thumbnail{
-			data:      fileContent,
-			mediaType: fileType,
-		}
-		videoThumbnails[metadata.UserID] = thumbnailData
-	*/
-
+	// Create temporary file
 	filename := make([]byte, 32)
 	_, err = rand.Read(filename)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error generating filename", err)
 		return
 	}
-	thumbnailPath := filepath.Join(cfg.assetsRoot, base64.RawURLEncoding.EncodeToString(filename)+fileExt[0])
 
+	// Create thumbnail file
+	thumbnailPath := filepath.Join(cfg.assetsRoot, base64.RawURLEncoding.EncodeToString(filename)+fileExt[0])
 	thumbnailFile, err := os.Create(thumbnailPath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to create new thumbnail file", err)
@@ -112,20 +102,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	/*
-		thumbnailURL := "data:" + fileType + ";base64," + fileContentBase64
-		metadata.ThumbnailURL = &thumbnailURL
-	*/
+	// Update metadata
 	thumbnailURL := "http://localhost:" + cfg.port + "/" + thumbnailPath
-	//thumbnailURL := "/" + thumbnailPath
 	metadata.ThumbnailURL = &thumbnailURL
 	metadata.UpdatedAt = time.Now()
-
 	err = cfg.db.UpdateVideo(metadata)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "error updating video data", err)
 		return
 	}
 
+	// Response
 	respondWithJSON(w, http.StatusOK, metadata)
 }
