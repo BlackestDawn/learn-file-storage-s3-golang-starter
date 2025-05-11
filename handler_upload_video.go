@@ -102,19 +102,33 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		aspectRatio = "portrait"
 	}
 
-	// Upload to S3
+	// Process for fast start
 	tempFile.Seek(0, io.SeekStart)
+	fastStartPath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to process video for fast start", err)
+		return
+	}
+	defer os.Remove(fastStartPath)
+
+	// Upload to S3
 	filename := make([]byte, 32)
 	_, err = rand.Read(filename)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error generating filename", err)
 		return
 	}
+	fastStartFile, err := os.Open(fastStartPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to open fast start file", err)
+		return
+	}
+	defer fastStartFile.Close()
 	fileKey := aspectRatio + "/" + base64.RawURLEncoding.EncodeToString(filename) + fileExt[0]
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         &fileKey,
-		Body:        tempFile,
+		Body:        fastStartFile,
 		ContentType: &mimeType,
 	})
 	if err != nil {
