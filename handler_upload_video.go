@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -82,11 +83,23 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
 
-	// Copy file to temporary file
+	// Save file to temporary file
 	_, err = io.Copy(tempFile, videoFile)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to write temporary file", err)
 		return
+	}
+
+	// Get aspect ratio
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to get aspect ratio", err)
+		return
+	}
+	if aspectRatio == "16:9" {
+		aspectRatio = "landscape"
+	} else if aspectRatio == "9:16" {
+		aspectRatio = "portrait"
 	}
 
 	// Upload to S3
@@ -97,7 +110,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error generating filename", err)
 		return
 	}
-	fileKey := base64.RawURLEncoding.EncodeToString(filename) + fileExt[0]
+	fileKey := aspectRatio + "/" + base64.RawURLEncoding.EncodeToString(filename) + fileExt[0]
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         &fileKey,
@@ -120,5 +133,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Response
+	log.Println("Video uploaded successfully to:", videoURL)
 	respondWithJSON(w, http.StatusOK, metadata)
 }
